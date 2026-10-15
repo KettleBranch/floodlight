@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Floodlight</title>
+<style>
+  :root {
+    --bg: #1b1b1f;
+    --panel: #26262c;
+    --line: #3a3a43;
+    --text: #ececf1;
+    --muted: #a0a0ad;
+    --focus: #7db4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+  }
+  main { width: 100%; max-width: 34rem; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 .25rem; text-align: center; }
+  p.hint { color: var(--muted); margin: 0 0 1.5rem; line-height: 1.5; text-align: center; }
+
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+    gap: .75rem;
+    margin-bottom: 1.5rem;
+  }
+  .swatch {
+    height: 4rem;
+    border-radius: .5rem;
+    border: 2px solid var(--line);
+    cursor: pointer;
+    font: inherit;
+    font-size: .8rem;
+    display: flex;
+    align-items: flex-end;
+    padding: .4rem .5rem;
+    color: var(--sw-text, #000);
+    background: var(--sw);
+  }
+  .swatch:hover { border-color: var(--text); }
+
+  .custom {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: .75rem;
+    padding: 1rem;
+    display: grid;
+    gap: 1rem;
+  }
+
+  /* Saturation / brightness field */
+  #sv {
+    position: relative;
+    width: 100%;
+    height: clamp(14rem, 42vh, 22rem);
+    border-radius: .5rem;
+    cursor: crosshair;
+    touch-action: none;
+    background:
+      linear-gradient(to top, #000, rgba(0,0,0,0)),
+      linear-gradient(to right, #fff, rgba(255,255,255,0)),
+      var(--hue, #f00);
+  }
+  /* Hue slider */
+  #hue {
+    position: relative;
+    width: 100%;
+    height: 1.75rem;
+    border-radius: .5rem;
+    cursor: pointer;
+    touch-action: none;
+    background: linear-gradient(to right,
+      #f00 0%, #ff0 16.667%, #0f0 33.333%, #0ff 50%, #00f 66.667%, #f0f 83.333%, #f00 100%);
+  }
+  .thumb {
+    position: absolute;
+    width: 1.5rem; height: 1.5rem;
+    margin: -.75rem 0 0 -.75rem;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 1.5px #000, inset 0 0 0 1.5px #000;
+    pointer-events: none;
+    background: var(--thumb, transparent);
+  }
+  #hueThumb { top: 50%; }
+
+  .row { display: flex; gap: .75rem; align-items: center; }
+  .chip {
+    width: 2.75rem; height: 2.75rem; flex: none;
+    border-radius: .5rem; border: 2px solid var(--line);
+    background: var(--cur);
+  }
+  input[type="text"] {
+    flex: 1; min-width: 0; height: 2.75rem;
+    padding: 0 .75rem; font: inherit; font-family: ui-monospace, Menlo, Consolas, monospace;
+    color: var(--text); background: var(--bg);
+    border: 2px solid var(--line); border-radius: .5rem;
+  }
+  input[aria-invalid="true"] { border-color: #ff6b6b; }
+  .error { color: #ff8f8f; font-size: .85rem; min-height: 1.1em; margin: -.5rem 0 0; }
+  button.go {
+    height: 2.75rem; padding: 0 1.25rem; font: inherit; font-weight: 600;
+    border: 0; border-radius: .5rem; cursor: pointer;
+    background: var(--text); color: var(--bg);
+  }
+  button.go:hover { background: #fff; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  #flood {
+    position: fixed; inset: 0; z-index: 10;
+    display: none; cursor: pointer;
+  }
+  #flood.on { display: block; }
+  #flood.hide-cursor { cursor: none; }
+</style>
+</head>
+<body>
+
+<main id="app">
+  <h1>Floodlight</h1>
+  <p class="hint">Pick a color to fill the whole screen. Click, tap, or press Esc to go back.</p>
+
+  <div class="swatches" id="swatches"></div>
+
+  <section class="custom" aria-label="Custom color">
+    <div id="sv" tabindex="0" role="application"
+         aria-label="Saturation and brightness. Use arrow keys; hold Shift for larger steps.">
+      <div class="thumb" id="svThumb"></div>
+    </div>
+    <div id="hue" tabindex="0" role="slider" aria-label="Hue"
+         aria-valuemin="0" aria-valuemax="360" aria-valuenow="0">
+      <div class="thumb" id="hueThumb"></div>
+    </div>
+    <div class="row">
+      <div class="chip" id="chip" aria-hidden="true"></div>
+      <input type="text" id="hex" value="#FA6607" maxlength="7" spellcheck="false"
+             autocomplete="off" aria-label="Hex color code" aria-describedby="err">
+      <button class="go" id="show" type="button">Show</button>
+    </div>
+    <p class="error" id="err" role="alert"></p>
+  </section>
+</main>
+
+<div id="flood" role="button" tabindex="-1" aria-label="Color fill. Click or press Escape to exit."></div>
+
+<script>
+(function () {
+  // Edit this list to add or remove preset colors.
+  var PRESETS = [
+    { name: "White",  hex: "#FFFFFF" },
+    { name: "Black",  hex: "#000000" },
+    { name: "Orange", hex: "#FA6607" },
+    { name: "Red",    hex: "#FF0000" },
+    { name: "Green",  hex: "#00FF00" },
+    { name: "Blue",   hex: "#0000FF" },
+    { name: "Warm",   hex: "#FFB347" },
+    { name: "Cool",   hex: "#CFE3FF" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var flood = $("flood"), hex = $("hex"), err = $("err"), chip = $("chip");
+  var sv = $("sv"), svThumb = $("svThumb"), hue = $("hue"), hueThumb = $("hueThumb");
+  var wakeLock = null, cursorTimer = null;
+
+  /* ---------- color math ---------- */
+  var state = { h: 0, s: 1, v: 1 };
+
+  function hsvToHex(h, s, v) {
+    var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c, r, g, b;
+    if (h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    return "#" + [r, g, b].map(function (n) {
+      return ("0" + Math.round((n + m) * 255).toString(16)).slice(-2);
+    }).join("").toUpperCase();
+  }
+
+  function hexToHsv(h6) {
+    var n = parseInt(h6.slice(1), 16);
+    var r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min, h = 0;
+    if (d) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    return { h: h, s: max ? d / max : 0, v: max };
+  }
+
+  // Accepts "fa6607", "#fa6607", "f60", "#f60" -> "#FA6607" or null
+  function normalize(v) {
+    v = v.trim().replace(/^#/, "");
+    if (/^[0-9a-f]{3}$/i.test(v)) v = v.split("").map(function (c) { return c + c; }).join("");
+    return /^[0-9a-f]{6}$/i.test(v) ? "#" + v.toUpperCase() : null;
+  }
+
+  function isDark(h) {
+    var n = parseInt(h.slice(1), 16);
+    return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 140;
+  }
+
+  function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+
+  /* ---------- picker UI ---------- */
+  function render(updateText) {
+    var cur = hsvToHex(state.h, state.s, state.v);
+    sv.style.setProperty("--hue", hsvToHex(state.h, 1, 1));
+    svThumb.style.left = state.s * 100 + "%";
+    svThumb.style.top = (1 - state.v) * 100 + "%";
+    svThumb.style.setProperty("--thumb", cur);
+    hueThumb.style.left = state.h / 360 * 100 + "%";
+    hueThumb.style.setProperty("--thumb", hsvToHex(state.h, 1, 1));
+    hue.setAttribute("aria-valuenow", Math.round(state.h));
+    chip.style.setProperty("--cur", cur);
+    if (updateText) hex.value = cur;
+    hex.removeAttribute("aria-invalid");
+    err.textContent = "";
+  }
+
+  function drag(el, onMove) {
+    el.addEventListener("pointerdown", function (e) {
+      el.setPointerCapture(e.pointerId);
+      el.focus({ preventScroll: true });
+      var go = function (ev) {
+        var r = el.getBoundingClientRect();
+        onMove(clamp((ev.clientX - r.left) / r.width, 0, 1),
+               clamp((ev.clientY - r.top) / r.height, 0, 1));
+      };
+      go(e);
+      el.addEventListener("pointermove", go);
+      var stop = function () {
+        el.removeEventListener("pointermove", go);
+        el.removeEventListener("pointerup", stop);
+        el.removeEventListener("pointercancel", stop);
+      };
+      el.addEventListener("pointerup", stop);
+      el.addEventListener("pointercancel", stop);
+      e.preventDefault();
+    });
+  }
+
+  drag(sv, function (x, y) { state.s = x; state.v = 1 - y; render(true); });
+  drag(hue, function (x) { state.h = x * 360; render(true); });
+
+  sv.addEventListener("keydown", function (e) {
+    var step = e.shiftKey ? 0.1 : 0.01, k = e.key, used = true;
+    if (k === "ArrowLeft") state.s = clamp(state.s - step, 0, 1);
+    else if (k === "ArrowRight") state.s = clamp(state.s + step, 0, 1);
+    else if (k === "ArrowUp") state.v = clamp(state.v + step, 0, 1);
+    else if (k === "ArrowDown") state.v = clamp(state.v - step, 0, 1);
+    else used = false;
+    if (used) { e.preventDefault(); render(true); }
+  });
+  hue.addEventListener("keydown", function (e) {
+    var step = e.shiftKey ? 10 : 1, k = e.key, used = true;
+    if (k === "ArrowLeft" || k === "ArrowDown") state.h = clamp(state.h - step, 0, 360);
+    else if (k === "ArrowRight" || k === "ArrowUp") state.h = clamp(state.h + step, 0, 360);
+    else used = false;
+    if (used) { e.preventDefault(); render(true); }
+  });
+
+  hex.addEventListener("input", function () {
+    var c = normalize(hex.value);
+    if (!c) return;
+    var n = hexToHsv(c);
+    if (n.s > 0 && n.v > 0) state.h = n.h;   // keep hue for greys/black
+    state.s = n.s; state.v = n.v;
+    render(false);
+  });
+
+  /* ---------- flood ---------- */
+  function open(color) {
+    flood.style.background = color;
+    flood.classList.add("on");
+    flood.classList.remove("hide-cursor");
+    clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(function () { flood.classList.add("hide-cursor"); }, 1500);
+    var el = document.documentElement;
+    if (el.requestFullscreen && !document.fullscreenElement) {
+      el.requestFullscreen().catch(function () {});
+    }
+    acquireLock();
+  }
+
+  function acquireLock() {
+    if (navigator.wakeLock) {
+      navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; }).catch(function () {});
+    }
+  }
+
+  function close() {
+    if (!flood.classList.contains("on")) return;
+    flood.classList.remove("on");
+    clearTimeout(cursorTimer);
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+    if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; }
+  }
+
+  function showCustom() {
+    var c = normalize(hex.value);
+    if (!c) {
+      hex.setAttribute("aria-invalid", "true");
+      err.textContent = "Enter a hex color like #FA6607 or #F60.";
+      return;
+    }
+    hex.value = c;
+    open(c);
+  }
+
+  /* ---------- wiring ---------- */
+  var box = $("swatches");
+  PRESETS.forEach(function (p) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "swatch";
+    b.style.setProperty("--sw", p.hex);
+    b.style.setProperty("--sw-text", isDark(p.hex) ? "#fff" : "#000");
+    b.textContent = p.name;
+    b.title = p.hex;
+    b.addEventListener("click", function () { open(p.hex); });
+    box.appendChild(b);
+  });
+
+  $("show").addEventListener("click", showCustom);
+  hex.addEventListener("keydown", function (e) { if (e.key === "Enter") showCustom(); });
+
+  flood.addEventListener("click", close);
+  document.addEventListener("keydown", function (e) {
+    if (!flood.classList.contains("on")) return;
+    e.preventDefault();
+    if (e.key === "Escape") close();   // all other keys are ignored
+  }, true);
+  document.addEventListener("fullscreenchange", function () {
+    if (!document.fullscreenElement) close();
+  });
+  flood.addEventListener("mousemove", function () {
+    flood.classList.remove("hide-cursor");
+    clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(function () { flood.classList.add("hide-cursor"); }, 1500);
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && flood.classList.contains("on")) acquireLock();
+  });
+
+  // Start on the orange default
+  var start = hexToHsv("#FA6607");
+  state.h = start.h; state.s = start.s; state.v = start.v;
+  render(true);
+})();
+</script>
+</body>
+</html>
